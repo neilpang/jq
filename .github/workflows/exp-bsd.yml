@@ -1,0 +1,165 @@
+name: exp bsd
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  freebsd:
+    name: FreeBSD
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          cache-after-prepare: true
+          prepare: |
+            pkg install -y autoconf automake libtool gmake git
+          run: |
+            set +e
+            echo "@@@ BEGIN"
+            uname -a
+            cc --version | head -1
+            git config --global --add safe.directory "$PWD"
+            git config --global --add safe.directory "$PWD/vendor/oniguruma"
+            echo "@@@ ---- version machinery ----"
+            echo "@@@ git: `command -v git || echo MISSING`"
+            echo "@@@ dot-git: `test -e .git && echo present || echo absent`"
+            sh scripts/version > /tmp/v.txt 2>&1; echo "@@@ scripts/version rc=$? out=[`cat /tmp/v.txt`]"
+            printf "" | xargs printf "@@@ empty-xargs ran: [%s]\n"
+            echo "@@@ (no empty-xargs line above means BSD-style xargs, which skips the command)"
+            autoreconf -i > /tmp/ar.log 2>&1; echo "@@@ autoreconf rc=$?"
+            ./configure --with-oniguruma=builtin --enable-static --disable-docs > /tmp/conf.log 2>&1
+            echo "@@@ configure rc=$?"; tail -5 /tmp/conf.log
+            gmake -j`sysctl -n hw.ncpu` > /tmp/make.log 2>&1; echo "@@@ make rc=$?"; grep -nE "error|Error|No such file" /tmp/make.log | head -12
+            echo "@@@ version.h: [`cat src/version.h 2>/dev/null`]"
+            gmake check VERBOSE=yes > /tmp/check.log 2>&1; echo "@@@ check rc=$?"
+            echo "@@@ ---- jq's own suite (the last results in the log) ----"
+            grep -E "^(PASS|FAIL|SKIP|ERROR): tests/" /tmp/check.log
+            echo "@@@ ---- final totals ----"
+            grep -E "^# (TOTAL|PASS|SKIP|FAIL|ERROR):" /tmp/check.log | tail -5
+            echo "@@@ ---- any failure detail ----"
+            echo "@@@ ---- tests/shtest.log, the failing assertions ----"
+            if [ -f tests/shtest.log ]; then
+              grep -nE "\*\*\*|FAIL|expected|Expected|differ|assert" tests/shtest.log | head -40
+              echo "@@@ ---- last 40 lines of shtest.log ----"
+              tail -40 tests/shtest.log
+            else
+              echo "  tests/shtest.log absent; what log files exist:"
+              ls -l tests/*.log 2>/dev/null
+            fi
+            echo "@@@ END"
+            exit 0
+
+  netbsd:
+    name: NetBSD
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: vmactions/netbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          cache-after-prepare: true
+          prepare: |
+            /usr/sbin/pkg_add autoconf automake libtool gmake git-base
+          run: |
+            set +e
+            echo "@@@ BEGIN"
+            uname -a
+            cc --version | head -1
+            git config --global --add safe.directory "$PWD"
+            git config --global --add safe.directory "$PWD/vendor/oniguruma"
+            echo "@@@ ---- version machinery ----"
+            echo "@@@ git: `command -v git || echo MISSING`"
+            echo "@@@ dot-git: `test -e .git && echo present || echo absent`"
+            sh scripts/version > /tmp/v.txt 2>&1; echo "@@@ scripts/version rc=$? out=[`cat /tmp/v.txt`]"
+            printf "" | xargs printf "@@@ empty-xargs ran: [%s]\n"
+            echo "@@@ (no empty-xargs line above means BSD-style xargs, which skips the command)"
+            autoreconf -i > /tmp/ar.log 2>&1; echo "@@@ autoreconf rc=$?"
+            ./configure --with-oniguruma=builtin --enable-static --disable-docs > /tmp/conf.log 2>&1
+            echo "@@@ configure rc=$?"; tail -5 /tmp/conf.log
+            gmake -j`sysctl -n hw.ncpu` > /tmp/make.log 2>&1; echo "@@@ make rc=$?"; grep -nE "error|Error|No such file" /tmp/make.log | head -12
+            echo "@@@ version.h: [`cat src/version.h 2>/dev/null`]"
+            gmake check VERBOSE=yes > /tmp/check.log 2>&1; echo "@@@ check rc=$?"
+            echo "@@@ ---- jq's own suite (the last results in the log) ----"
+            grep -E "^(PASS|FAIL|SKIP|ERROR): tests/" /tmp/check.log
+            echo "@@@ ---- final totals ----"
+            grep -E "^# (TOTAL|PASS|SKIP|FAIL|ERROR):" /tmp/check.log | tail -5
+            echo "@@@ ---- any failure detail ----"
+            echo "@@@ ---- tests/shtest.log, the failing assertions ----"
+            if [ -f tests/shtest.log ]; then
+              grep -nE "\*\*\*|FAIL|expected|Expected|differ|assert" tests/shtest.log | head -40
+              echo "@@@ ---- last 40 lines of shtest.log ----"
+              tail -40 tests/shtest.log
+            else
+              echo "  tests/shtest.log absent; what log files exist:"
+              ls -l tests/*.log 2>/dev/null
+            fi
+            echo "@@@ ---- shtest detail, the failure from issue 3568 ----"
+            sed -n '/shtest/,$p' /tmp/check.log | head -40
+            echo "@@@ END"
+            exit 0
+
+  openbsd:
+    name: OpenBSD
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: vmactions/openbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          cache-after-prepare: true
+          prepare: |
+            pkg_add -I autoconf-2.72p0 automake-1.18.1 libtool gmake git
+          run: |
+            set +e
+            echo "@@@ BEGIN"
+            uname -a
+            AUTOCONF_VERSION=$(ls /usr/local/bin/autoconf-* | sed 's:.*/autoconf-::' | sort -V | tail -1)
+            AUTOMAKE_VERSION=$(ls /usr/local/bin/automake-* | sed 's:.*/automake-::' | sort -V | tail -1)
+            export AUTOCONF_VERSION AUTOMAKE_VERSION
+            echo "@@@ autoconf $AUTOCONF_VERSION automake $AUTOMAKE_VERSION"
+            git config --global --add safe.directory "$PWD"
+            git config --global --add safe.directory "$PWD/vendor/oniguruma"
+            echo "@@@ ---- version machinery ----"
+            echo "@@@ git: `command -v git || echo MISSING`"
+            echo "@@@ dot-git: `test -e .git && echo present || echo absent`"
+            sh scripts/version > /tmp/v.txt 2>&1; echo "@@@ scripts/version rc=$? out=[`cat /tmp/v.txt`]"
+            printf "" | xargs printf "@@@ empty-xargs ran: [%s]\n"
+            echo "@@@ (no empty-xargs line above means BSD-style xargs, which skips the command)"
+            autoreconf -i > /tmp/ar.log 2>&1; echo "@@@ autoreconf rc=$?"; tail -5 /tmp/ar.log
+            ./configure --with-oniguruma=builtin --enable-static --disable-docs > /tmp/conf.log 2>&1
+            echo "@@@ configure rc=$?"; tail -5 /tmp/conf.log
+            gmake -j`sysctl -n hw.ncpu` > /tmp/make.log 2>&1; echo "@@@ make rc=$?"; grep -nE "error|Error|No such file" /tmp/make.log | head -12
+            echo "@@@ version.h: [`cat src/version.h 2>/dev/null`]"
+            gmake check VERBOSE=yes > /tmp/check.log 2>&1; echo "@@@ check rc=$?"
+            echo "@@@ ---- jq's own suite (the last results in the log) ----"
+            grep -E "^(PASS|FAIL|SKIP|ERROR): tests/" /tmp/check.log
+            echo "@@@ ---- final totals ----"
+            grep -E "^# (TOTAL|PASS|SKIP|FAIL|ERROR):" /tmp/check.log | tail -5
+            echo "@@@ ---- any failure detail ----"
+            echo "@@@ ---- tests/shtest.log, the failing assertions ----"
+            if [ -f tests/shtest.log ]; then
+              grep -nE "\*\*\*|FAIL|expected|Expected|differ|assert" tests/shtest.log | head -40
+              echo "@@@ ---- last 40 lines of shtest.log ----"
+              tail -40 tests/shtest.log
+            else
+              echo "  tests/shtest.log absent; what log files exist:"
+              ls -l tests/*.log 2>/dev/null
+            fi
+            echo "@@@ END"
+            exit 0
