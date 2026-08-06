@@ -1,0 +1,52 @@
+name: exp obsd shtest
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  openbsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: true
+      - uses: vmactions/openbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          prepare: |
+            pkg_add -I autoconf-2.72p0 automake-1.18.1 libtool gmake git
+          run: |
+            set +e
+            echo "@@@ BEGIN"
+            uname -a
+            export GIT_CONFIG_PARAMETERS="'safe.directory=*'"
+            AUTOCONF_VERSION=$(ls /usr/local/bin/autoconf-* | sed 's:.*/autoconf-::' | sort -V | tail -1)
+            AUTOMAKE_VERSION=$(ls /usr/local/bin/automake-* | sed 's:.*/automake-::' | sort -V | tail -1)
+            export AUTOCONF_VERSION AUTOMAKE_VERSION
+            autoreconf -i > /tmp/ar.log 2>&1
+            ./configure --with-oniguruma=builtin --enable-static --disable-docs > /tmp/c.log 2>&1
+            echo "@@@ configure rc=$?"
+            gmake -j`sysctl -n hw.ncpu` > /tmp/m.log 2>&1
+            echo "@@@ make rc=$?"
+            gmake check VERBOSE=yes > /tmp/check.log 2>&1
+            echo "@@@ check rc=$?"
+            grep -E "^(PASS|FAIL): tests/" /tmp/check.log
+
+            echo "@@@ ==== tests/shtest.log: where it diverges ===="
+            # cmp prints "differ: char N, line M" on mismatch; that is the signal
+            grep -nE "differ|Error|error|FAIL" tests/shtest.log | head -20
+            echo "@@@ ---- the 30 lines around the first differ ----"
+            L=$(grep -n "differ" tests/shtest.log | head -1 | cut -d: -f1)
+            if [ -n "$L" ]; then
+              S=$((L-25)); [ $S -lt 1 ] && S=1
+              sed -n "${S},$((L+5))p" tests/shtest.log
+            else
+              echo "  no 'differ' line; last 40 lines of shtest.log:"
+              tail -40 tests/shtest.log
+            fi
+            echo "@@@ END"
+            exit 0
