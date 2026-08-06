@@ -1,0 +1,55 @@
+name: exp script
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  openbsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vmactions/openbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          run: |
+            set +e
+            echo "@@@ BEGIN OpenBSD"
+            uname -a
+            echo "@@@ script(1) synopsis:"
+            man 1 script 2>/dev/null | sed -n '1,12p'
+            echo "@@@ ---- the probe at tests/shtest:649 ----"
+            script -qc echo /dev/null > /tmp/probe.out 2>&1
+            echo "@@@ probe rc=$?"
+            cat /tmp/probe.out
+            echo "@@@ ---- util-linux form (line 650) ----"
+            script -qec "echo hi" /dev/null > /tmp/a.out 2>&1
+            echo "@@@ -qec rc=$?"; od -c /tmp/a.out | head -3
+            echo "@@@ ---- macOS form (line 652) ----"
+            script -q /dev/null echo hi /dev/null > /tmp/b.out 2>&1
+            echo "@@@ -q form rc=$?"; od -c /tmp/b.out | head -3
+            echo "@@@ END"
+            exit 0
+
+  netbsd:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vmactions/netbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          run: |
+            set +e
+            echo "@@@ BEGIN NetBSD"
+            uname -a
+            echo "@@@ ---- the probe at tests/shtest:649 ----"
+            script -qc echo /dev/null > /tmp/probe.out 2>&1
+            echo "@@@ probe rc=$?"
+            cat /tmp/probe.out
+            echo "@@@ END"
+            exit 0
