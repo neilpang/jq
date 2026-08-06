@@ -1,0 +1,259 @@
+name: exp repro
+
+on:
+  push:
+    branches:
+      - '**'
+
+jobs:
+  freebsd:
+    name: FreeBSD (control, expected correct)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vmactions/freebsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          run: |
+            set +e
+            LABEL=FreeBSD
+            echo "@@@ BEGIN"
+            echo "@@@ ---- $LABEL ----"
+            uname -a
+            cat > /tmp/repro.c <<'CEOF'
+            #include <err.h>
+            #include <stdio.h>
+            #include <string.h>
+            #include <time.h>
+            void f_gmtime(time_t secs, struct tm *tmp) {
+              memset(tmp, 0, sizeof(*tmp));
+              if (gmtime_r(&secs, tmp) == NULL)
+                err(1, "gmtime_r failed");
+            }
+
+            char *f_strftime(time_t secs) {
+              char buf[1000];
+              struct tm tm;
+              memset(&tm, 0, sizeof(struct tm));
+              f_gmtime(secs, &tm);
+              const char *fmt = "%FT%T%Z";
+              size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+              if ((n == 0) || n > sizeof(buf))
+                err(1, "strftime failed");
+
+              return strdup(buf);
+            }
+
+            void f_localtime(time_t secs, struct tm *tmp) {
+              memset(tmp, 0, sizeof(*tmp));
+              if (localtime_r(&secs, tmp) == NULL)
+                err(1, "localtime_r failed");
+            }
+
+            char *f_strflocaltime(time_t secs) {
+              struct tm tm;
+              char buf[1000];
+              f_localtime(secs, &tm);
+              const char *fmt = "%FT%T%z";
+              size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+              if ((n == 0) || n > sizeof(buf))
+                err(1, "strftime failed");
+              return strdup(buf);
+            }
+
+            int main(int argc, char *argv[]) {
+              uint64_t epoch_secs = 1731627341;
+              printf("%s\n", f_strftime(epoch_secs));
+              printf("%s\n", f_strflocaltime(epoch_secs));
+            }
+
+            CEOF
+            sed 's/^            //' /tmp/repro.c > /tmp/r.c
+            cc -o /tmp/repro /tmp/r.c 2>/tmp/cc.log
+            RC=$?
+            echo "@@@ compile rc=$RC"
+            if [ $RC -ne 0 ]; then
+              head -5 /tmp/cc.log
+              echo "@@@ retry with <stdint.h> added"
+              (echo '#include <stdint.h>'; cat /tmp/r.c) > /tmp/r2.c
+              cc -o /tmp/repro /tmp/r2.c 2>&1 | head -5
+              echo "@@@ retry rc=$?"
+            fi
+            echo "@@@ TZ=Europe/Berlin:"
+            TZ=Europe/Berlin /tmp/repro
+            echo "@@@ TZ=Etc/GMT+7:"
+            TZ=Etc/GMT+7 /tmp/repro
+            echo "@@@ TZ unset:"
+            /tmp/repro
+            echo "@@@ END"
+            exit 0
+
+  openbsd:
+    name: OpenBSD (the question)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vmactions/openbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          run: |
+            set +e
+            LABEL=OpenBSD
+            echo "@@@ BEGIN"
+            echo "@@@ ---- $LABEL ----"
+            uname -a
+            cat > /tmp/repro.c <<'CEOF'
+            #include <err.h>
+            #include <stdio.h>
+            #include <string.h>
+            #include <time.h>
+            void f_gmtime(time_t secs, struct tm *tmp) {
+              memset(tmp, 0, sizeof(*tmp));
+              if (gmtime_r(&secs, tmp) == NULL)
+                err(1, "gmtime_r failed");
+            }
+
+            char *f_strftime(time_t secs) {
+              char buf[1000];
+              struct tm tm;
+              memset(&tm, 0, sizeof(struct tm));
+              f_gmtime(secs, &tm);
+              const char *fmt = "%FT%T%Z";
+              size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+              if ((n == 0) || n > sizeof(buf))
+                err(1, "strftime failed");
+
+              return strdup(buf);
+            }
+
+            void f_localtime(time_t secs, struct tm *tmp) {
+              memset(tmp, 0, sizeof(*tmp));
+              if (localtime_r(&secs, tmp) == NULL)
+                err(1, "localtime_r failed");
+            }
+
+            char *f_strflocaltime(time_t secs) {
+              struct tm tm;
+              char buf[1000];
+              f_localtime(secs, &tm);
+              const char *fmt = "%FT%T%z";
+              size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+              if ((n == 0) || n > sizeof(buf))
+                err(1, "strftime failed");
+              return strdup(buf);
+            }
+
+            int main(int argc, char *argv[]) {
+              uint64_t epoch_secs = 1731627341;
+              printf("%s\n", f_strftime(epoch_secs));
+              printf("%s\n", f_strflocaltime(epoch_secs));
+            }
+
+            CEOF
+            sed 's/^            //' /tmp/repro.c > /tmp/r.c
+            cc -o /tmp/repro /tmp/r.c 2>/tmp/cc.log
+            RC=$?
+            echo "@@@ compile rc=$RC"
+            if [ $RC -ne 0 ]; then
+              head -5 /tmp/cc.log
+              echo "@@@ retry with <stdint.h> added"
+              (echo '#include <stdint.h>'; cat /tmp/r.c) > /tmp/r2.c
+              cc -o /tmp/repro /tmp/r2.c 2>&1 | head -5
+              echo "@@@ retry rc=$?"
+            fi
+            echo "@@@ TZ=Europe/Berlin:"
+            TZ=Europe/Berlin /tmp/repro
+            echo "@@@ TZ=Etc/GMT+7:"
+            TZ=Etc/GMT+7 /tmp/repro
+            echo "@@@ TZ unset:"
+            /tmp/repro
+            echo "@@@ END"
+            exit 0
+
+  netbsd:
+    name: NetBSD (control, expected to reproduce)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: vmactions/netbsd-vm@v1
+        with:
+          usesh: true
+          copyback: false
+          run: |
+            set +e
+            LABEL=NetBSD
+            echo "@@@ BEGIN"
+            echo "@@@ ---- $LABEL ----"
+            uname -a
+            cat > /tmp/repro.c <<'CEOF'
+            #include <err.h>
+            #include <stdio.h>
+            #include <string.h>
+            #include <time.h>
+            void f_gmtime(time_t secs, struct tm *tmp) {
+              memset(tmp, 0, sizeof(*tmp));
+              if (gmtime_r(&secs, tmp) == NULL)
+                err(1, "gmtime_r failed");
+            }
+
+            char *f_strftime(time_t secs) {
+              char buf[1000];
+              struct tm tm;
+              memset(&tm, 0, sizeof(struct tm));
+              f_gmtime(secs, &tm);
+              const char *fmt = "%FT%T%Z";
+              size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+              if ((n == 0) || n > sizeof(buf))
+                err(1, "strftime failed");
+
+              return strdup(buf);
+            }
+
+            void f_localtime(time_t secs, struct tm *tmp) {
+              memset(tmp, 0, sizeof(*tmp));
+              if (localtime_r(&secs, tmp) == NULL)
+                err(1, "localtime_r failed");
+            }
+
+            char *f_strflocaltime(time_t secs) {
+              struct tm tm;
+              char buf[1000];
+              f_localtime(secs, &tm);
+              const char *fmt = "%FT%T%z";
+              size_t n = strftime(buf, sizeof(buf), fmt, &tm);
+              if ((n == 0) || n > sizeof(buf))
+                err(1, "strftime failed");
+              return strdup(buf);
+            }
+
+            int main(int argc, char *argv[]) {
+              uint64_t epoch_secs = 1731627341;
+              printf("%s\n", f_strftime(epoch_secs));
+              printf("%s\n", f_strflocaltime(epoch_secs));
+            }
+
+            CEOF
+            sed 's/^            //' /tmp/repro.c > /tmp/r.c
+            cc -o /tmp/repro /tmp/r.c 2>/tmp/cc.log
+            RC=$?
+            echo "@@@ compile rc=$RC"
+            if [ $RC -ne 0 ]; then
+              head -5 /tmp/cc.log
+              echo "@@@ retry with <stdint.h> added"
+              (echo '#include <stdint.h>'; cat /tmp/r.c) > /tmp/r2.c
+              cc -o /tmp/repro /tmp/r2.c 2>&1 | head -5
+              echo "@@@ retry rc=$?"
+            fi
+            echo "@@@ TZ=Europe/Berlin:"
+            TZ=Europe/Berlin /tmp/repro
+            echo "@@@ TZ=Etc/GMT+7:"
+            TZ=Etc/GMT+7 /tmp/repro
+            echo "@@@ TZ unset:"
+            /tmp/repro
+            echo "@@@ END"
+            exit 0
